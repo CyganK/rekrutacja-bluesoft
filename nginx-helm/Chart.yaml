@@ -1,0 +1,4 @@
+apiVersion: v2
+name: nginx-rekrutacja
+description: Helm chart for deploying a static nginx webserver
+version: 0.1.0
