@@ -2,6 +2,9 @@ locals {
   name = "rekrutacja"
   location = "westeurope"
 
+  applicationGatewayIngressControllerEnabled = true
+  monitoringEnabled = true
+
   acr = {
     SKU = "Basic"
     adminEnabled = true
@@ -47,6 +50,7 @@ resource "azurerm_virtual_network" "vnet" {
 }
 
 resource "azurerm_subnet" "appgw" {
+  count = local.applicationGatewayIngressControllerEnabled ? 1:0
   name                 = format("%s-appgw-subnet", local.name)
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
@@ -61,6 +65,7 @@ resource "azurerm_subnet" "aks" {
 }
 
 resource "azurerm_public_ip" "appgw" {
+  count = local.applicationGatewayIngressControllerEnabled ? 1:0
   name                = format("%s-appgw-public-ip", local.name)
   location            = local.location
   resource_group_name = azurerm_resource_group.rg.name
@@ -70,6 +75,7 @@ resource "azurerm_public_ip" "appgw" {
 }
 
 resource "azurerm_application_gateway" "appgw" {
+  count = local.applicationGatewayIngressControllerEnabled ? 1:0
   name                = format("%s-appgw", local.name)
   location            = local.location
   resource_group_name = azurerm_resource_group.rg.name
@@ -82,7 +88,7 @@ resource "azurerm_application_gateway" "appgw" {
 
   gateway_ip_configuration {
     name      = "appgw-ip-configuration"
-    subnet_id = azurerm_subnet.appgw.id
+    subnet_id = azurerm_subnet.appgw[0].id
   }
 
   frontend_port {
@@ -92,7 +98,7 @@ resource "azurerm_application_gateway" "appgw" {
 
   frontend_ip_configuration {
     name                 = "appgw-frontend-ip"
-    public_ip_address_id = azurerm_public_ip.appgw.id
+    public_ip_address_id = azurerm_public_ip.appgw[0].id
   }
 
   backend_address_pool {
@@ -135,6 +141,14 @@ resource "azurerm_container_registry" "acr" {
   admin_enabled       = local.acr.adminEnabled
 }
 
+resource "azurerm_log_analytics_workspace" "law" {
+  count = local.monitoringEnabled ? 1:0
+  name                = format("%s-law", local.name)
+  location            = local.location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku                 = "PerGB2018"
+}
+
 
 # Tworzenie instancji Azure Container Instance
 resource "azurerm_kubernetes_cluster" "aks" {
@@ -154,8 +168,18 @@ resource "azurerm_kubernetes_cluster" "aks" {
     type = "SystemAssigned"
   }
 
-  ingress_application_gateway {
-    gateway_id = azurerm_application_gateway.appgw.id
+  dynamic "ingress_application_gateway" {
+    for_each = local.applicationGatewayIngressControllerEnabled ? [1] : []
+    content {
+      gateway_id = azurerm_application_gateway.appgw[0].id
+    }
+  }
+
+  dynamic "oms_agent" {
+    for_each = local.monitoringEnabled ? [1] : []
+    content {
+      log_analytics_workspace_id = azurerm_log_analytics_workspace.law[0].id
+    }
   }
 
 
@@ -176,15 +200,17 @@ resource "azurerm_role_assignment" "acr" {
 }
 
 resource "azurerm_role_assignment" "appgw_reader" {
+  count = local.applicationGatewayIngressControllerEnabled ? 1:0
   principal_id         = azurerm_kubernetes_cluster.aks.ingress_application_gateway[0].ingress_application_gateway_identity[0].object_id
   role_definition_name = "Owner"
   scope                = azurerm_resource_group.rg.id
 }
 
 resource "azurerm_role_assignment" "appgw_contributor" {
+  count = local.applicationGatewayIngressControllerEnabled ? 1:0
   principal_id         = azurerm_kubernetes_cluster.aks.ingress_application_gateway[0].ingress_application_gateway_identity[0].object_id
   role_definition_name = "Owner"
-  scope                = azurerm_application_gateway.appgw.id
+  scope                = azurerm_application_gateway.appgw[0].id
 }
 
 

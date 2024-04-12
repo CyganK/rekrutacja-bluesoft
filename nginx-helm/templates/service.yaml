@@ -4,7 +4,7 @@ metadata:
   name: {{ .Values.appName }}
   namespace: {{ .Values.namespace }}
 spec:
-  type: {{ .Values.service.type }}
+  type: {{ if .Values.applicationgatewayingressenabled }}ClusterIP{{ else }}LoadBalancer{{ end }}
   ports:
   - port: {{ .Values.service.port }}
     targetPort: 80
